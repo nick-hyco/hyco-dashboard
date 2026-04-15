@@ -489,8 +489,8 @@ async function loadSheet() {
   const gidMatch = raw.match(/gid=(\d+)/);
   const gid = gidMatch ? gidMatch[1] : '0';
   const csvUrl = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`;
-  const proxy1 = `https://api.allorigins.win/raw?url=${encodeURIComponent(csvUrl)}`;
-  const proxy2 = `https://corsproxy.io/?${encodeURIComponent(csvUrl)}`;
+  const proxy1 = `https://corsproxy.io/?${encodeURIComponent(csvUrl)}`;
+  const proxy2 = `https://thingproxy.freeboard.io/fetch/${csvUrl}`;
   const btn = document.getElementById('btnRefresh');
   btn.disabled = true; btn.innerHTML = '⏳ Loading...';
   setStatus('Fetching posts from your sheet...', 'info');
