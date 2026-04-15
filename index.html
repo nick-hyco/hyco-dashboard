@@ -489,15 +489,15 @@ async function loadSheet() {
   const gidMatch = raw.match(/gid=(\d+)/);
   const gid = gidMatch ? gidMatch[1] : '0';
   const csvUrl = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`;
-  const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(csvUrl)}`;
+  const proxy1 = `https://api.allorigins.win/raw?url=${encodeURIComponent(csvUrl)}`;
+  const proxy2 = `https://corsproxy.io/?${encodeURIComponent(csvUrl)}`;
   const btn = document.getElementById('btnRefresh');
   btn.disabled = true; btn.innerHTML = '⏳ Loading...';
   setStatus('Fetching posts from your sheet...', 'info');
   try {
-    let res = await fetch(proxyUrl);
-    if (!res.ok) {
-      res = await fetch(csvUrl);
-    }
+    let res = await fetch(proxy1);
+    if (!res.ok) res = await fetch(proxy2);
+    if (!res.ok) res = await fetch(csvUrl);
     if (!res.ok) throw new Error(`Sheet returned ${res.status}. Make sure sharing is set to "Anyone with the link can view".`);
     const csv = await res.text();
     const parsed = parseCSV(csv);
