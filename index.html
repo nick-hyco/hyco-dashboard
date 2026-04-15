@@ -432,52 +432,112 @@ function toggleSetup() {
 function parseCSV(csv) {
   const lines = csv.trim().split('\n');
   if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
-  const find = (names) => { for (const n of names) { const i = headers.indexOf(n); if (i > -1) return i; } return -1; };
-  const iHandle = find(['ownerusername','username','handle','creator','account','profileusername']);
-  const iType = find(['type','posttype','contenttype','mediatype','productype']);
-  const iLikes = find(['likescount','likes','likecount','diggcount','heartcount']);
-  const iComments = find(['commentscount','comments','commentcount','replycount']);
-  const iCaption = find(['caption','text','description','postcaption','videotext']);
-  const iDate = find(['timestamp','createdat','date','posteddate','time','createtime']);
-  const iThumb = find(['displayurl','thumbnailurl','imageurl','videocover','thumburl','previewimageurl','coverimageurl','coverurl']);
-  const iPlatform = find(['platform','source','network']);
-  const iUrl = find(['url','posturl','shortcode','webvideourl','videourl']);
+  const headers = lines[0].split('\t').length > 5
+    ? lines[0].split('\t').map(h => h.trim().replace(/"/g,'').toLowerCase())
+    : lines[0].split(',').map(h => h.trim().replace(/"/g,'').toLowerCase());
+  const sep = lines[0].split('\t').length > 5 ? '\t' : ',';
 
-  return lines.slice(1).filter(l => l.trim()).map((line, idx) => {
+  function parseLine(line) {
     const cols = [];
     let cur = '', inQ = false;
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
       if (ch === '"') { inQ = !inQ; }
-      else if (ch === ',' && !inQ) { cols.push(cur); cur = ''; }
+      else if (ch === sep && !inQ) { cols.push(cur); cur = ''; }
       else { cur += ch; }
     }
     cols.push(cur);
-    const get = (i) => i > -1 && cols[i] ? cols[i].replace(/^"|"$/g, '').trim() : '';
-    const likes = parseInt(get(iLikes)) || 0;
-    const comments = parseInt(get(iComments)) || 0;
-    const rawDate = get(iDate);
-    let dateStr = '—';
-    if (rawDate) { try { dateStr = new Date(rawDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); } catch(e) { dateStr = rawDate.slice(0, 10); } }
-    const handle = get(iHandle) || 'unknown';
-    const platRaw = get(iPlatform).toLowerCase();
-    const platform = platRaw.includes('tiktok') ? 'tiktok' : platRaw.includes('insta') ? 'instagram' : 'instagram';
-    const rawType = (get(iType) || 'image').toLowerCase();
-    const type = rawType.includes('carousel') || rawType.includes('sidecar') ? 'carousel' : rawType.includes('video') || rawType.includes('reel') ? 'reel' : 'image';
-    const rawUrl = get(iUrl);
-    const postUrl = rawUrl ? (rawUrl.startsWith('http') ? rawUrl : `https://www.instagram.com/p/${rawUrl}`) : `https://www.instagram.com/${handle}`;
-    return {
-      id: idx + 1,
-      handle: handle.startsWith('@') ? handle : '@' + handle,
-      platform, type, likes, comments,
-      engagement: likes + comments,
-      caption: get(iCaption) || '',
-      date: dateStr,
-      thumb: get(iThumb) || null,
-      url: postUrl,
-    };
-  }).filter(p => p.handle !== '@unknown');
+    return cols;
+  }
+
+  function getCol(cols, i) {
+    return i > -1 && cols[i] ? cols[i].replace(/^"|"$/g,'').trim() : '';
+  }
+
+  function fmtDate(raw) {
+    if (!raw) return '—';
+    try { return new Date(raw).toLocaleDateString('en-GB', {day:'numeric',month:'short'}); }
+    catch(e) { return raw.slice(0,10); }
+  }
+
+  function normalizeType(t) {
+    const s = (t||'').toLowerCase();
+    if (s.includes('carousel') || s.includes('sidecar') || s.includes('graph_sidecar')) return 'carousel';
+    if (s.includes('video') || s.includes('reel') || s.includes('clip')) return 'reel';
+    return 'image';
+  }
+
+  function makeUrl(raw, handle) {
+    if (!raw) return 'https://www.instagram.com/' + handle.replace('@','');
+    if (raw.startsWith('http')) return raw;
+    return 'https://www.instagram.com/p/' + raw;
+  }
+
+  const iOwner = headers.indexOf('ownerusername');
+  const iUsername = headers.indexOf('username');
+  const iInputUrl = headers.indexOf('inputurl');
+
+  const results = [];
+  let globalId = 1;
+
+  lines.slice(1).filter(l => l.trim()).forEach(line => {
+    const cols = parseLine(line);
+    const profileHandle = getCol(cols, iOwner) || getCol(cols, iUsername) || '';
+    const handle = profileHandle ? (profileHandle.startsWith('@') ? profileHandle : '@' + profileHandle) : '@unknown';
+    if (handle === '@unknown') return;
+
+    const iLikes = headers.indexOf('likescount');
+    const iComments = headers.indexOf('commentscount');
+    const iCaption = headers.indexOf('caption');
+    const iTimestamp = headers.indexOf('timestamp');
+    const iType = headers.indexOf('type');
+    const iUrl = headers.indexOf('url');
+    const iThumb = headers.indexOf('displayurl');
+
+    const topLikes = parseInt(getCol(cols, iLikes)) || 0;
+    const topComments = parseInt(getCol(cols, iComments)) || 0;
+    const topCaption = getCol(cols, iCaption);
+    const topDate = fmtDate(getCol(cols, iTimestamp));
+    const topType = normalizeType(getCol(cols, iType));
+    const topUrl = makeUrl(getCol(cols, iUrl), handle);
+    const topThumb = getCol(cols, iThumb);
+
+    if (topLikes > 0 || topCaption) {
+      results.push({
+        id: globalId++, handle, platform: 'instagram',
+        type: topType, likes: topLikes, comments: topComments,
+        engagement: topLikes + topComments,
+        caption: topCaption, date: topDate,
+        thumb: topThumb || null, url: topUrl,
+      });
+    }
+
+    for (let i = 0; i <= 19; i++) {
+      const prefix = 'childposts/' + i + '/';
+      const ciLikes = headers.indexOf(prefix + 'likescount');
+      const ciComments = headers.indexOf(prefix + 'commentscount');
+      const ciCaption = headers.indexOf(prefix + 'caption');
+      const ciTimestamp = headers.indexOf(prefix + 'timestamp');
+      const ciType = headers.indexOf(prefix + 'type');
+      const ciUrl = headers.indexOf(prefix + 'url');
+      const ciThumb = headers.indexOf(prefix + 'displayurl');
+      if (ciLikes === -1) break;
+      const likes = parseInt(getCol(cols, ciLikes)) || 0;
+      const comments = parseInt(getCol(cols, ciComments)) || 0;
+      const caption = getCol(cols, ciCaption);
+      if (!likes && !caption) continue;
+      results.push({
+        id: globalId++, handle, platform: 'instagram',
+        type: normalizeType(getCol(cols, ciType)),
+        likes, comments, engagement: likes + comments,
+        caption, date: fmtDate(getCol(cols, ciTimestamp)),
+        thumb: getCol(cols, ciThumb) || null,
+        url: makeUrl(getCol(cols, ciUrl), handle),
+      });
+    }
+  });
+
+  return results;
 }
 
 async function loadSheet() {
